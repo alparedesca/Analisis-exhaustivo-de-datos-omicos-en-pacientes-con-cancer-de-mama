@@ -1,0 +1,251 @@
+---
+title: "Análisis de CNV diferencial"
+author: "Alicia Paredes Calderón"
+date: "2024-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Establecer el directorio de trabajo
+setwd("c:/Users/apare/Desktop/Análisis de CNVs")
+```
+
+```{r}
+# Cargar la librería
+library(TCGAbiolinks)
+```
+
+```{r}
+# Hacer una consulta sobre los datos de CNVs del TCGA para el tumor primario
+BRCA_CNV_PT_TCGA <- GDCquery(project = 'TCGA-BRCA',
+                      data.category = 'Copy Number Variation',
+                      data.type = "Copy Number Segment", 
+                      sample.type = "Primary Tumor",
+                      access = 'open')
+                       
+getResults(BRCA_CNV_PT_TCGA)
+```
+
+```{r}
+# Hacer una consulta sobre los datos de metilación del TCGA para el tejido normal
+BRCA_CNV_STN_TCGA <- GDCquery(project = 'TCGA-BRCA',
+                      data.category = 'Copy Number Variation',
+                      data.type = "Copy Number Segment", 
+                      sample.type = "Solid Tissue Normal",
+                      access = 'open')
+                       
+getResults(BRCA_CNV_STN_TCGA)
+```
+
+```{r}
+# Descargar todo el conjunto de datos
+# GDCdownload(BRCA_CNV_PT_TCGA)
+```
+
+```{r}
+# Descargar todo el conjunto de datos
+# GDCdownload(BRCA_CNV_STN_TCGA)
+```
+
+```{r}
+# Generar archivo .rda con los datos
+# BRCA_CNV_PT <- GDCprepare(BRCA_CNV_PT_TCGA, save = T, save.filename = "BRCA_CNV_PT.rda")
+```
+
+```{r}
+# Generar archivo .rda con los datos
+# BRCA_CNV_STN <- GDCprepare(BRCA_CNV_STN_TCGA, save = T, save.filename = "BRCA_CNV_STN.rda")
+```
+
+```{r}
+# Cargar los datos en R
+load("BRCA_CNV_PT.rda")
+BRCA_CNV_PT <- data
+```
+
+```{r}
+# Cargar los datos en R
+load("BRCA_CNV_STN.rda")
+BRCA_CNV_STN <- data
+```
+
+```{r}
+# Creación del gráfico de violín para tumor primario
+library(ggplot2)
+
+Segment_mean_PT <- ggplot(BRCA_CNV_PT, aes(x = factor(1), y = Segment_Mean)) +
+  geom_violin(fill = "#EE3B3B", color = "black") + 
+  labs(title = "Media de los segmentos en el tumor primario",
+       x = "",
+       y = "Media del segmento") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  
+    axis.text.x = element_blank(),  
+    axis.ticks.x = element_blank()  
+  )
+
+Segment_mean_PT
+
+```
+
+```{r}
+# Creación del gráfico de violín para tejido normal
+Segment_mean_STN <- ggplot(BRCA_CNV_STN, aes(x = factor(1), y = Segment_Mean)) +
+  geom_violin(fill = "#66CD00", color = "black") + 
+  labs(title = "Media de los segmentos en el tejido normal",
+       x = "",
+       y = "Media del segmento") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  
+    axis.text.x = element_blank(),  
+    axis.ticks.x = element_blank()  
+  )
+
+Segment_mean_STN
+
+```
+
+```{r}
+# Fusionar los gráficos
+# Agregar una nueva columna al dataframe para identificar la fuente de los datos
+BRCA_CNV_PT$Muestra <- "Tumor Primario"
+BRCA_CNV_STN$Muestra <- "Tejido Normal"
+
+# Crear un dataframe combinado
+combined_data <- rbind(BRCA_CNV_PT, BRCA_CNV_STN)
+
+# Creación del gráfico de violín combinado con facet_wrap
+ggplot(data = combined_data, mapping = aes(x = Muestra, y = Segment_Mean, fill = Muestra)) +
+  geom_violin() +
+  labs(
+    title = "Medias de los segmentos en tumor primario y en tejido normal",
+    y = "Medias de los segmentos",
+    fill = "Muestra"
+  ) +
+  scale_fill_manual(values = c("Tumor Primario" = "#EE3B3B", "Tejido Normal" = "#66CD00")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  facet_wrap(~ Muestra, scales = "free")
+
+
+ggsave("segment_mean.png")
+
+```
+
+```{r}
+# Calcular la media de las medias de los segmentos
+# PT
+PT_mean <- mean(BRCA_CNV_PT$Segment_Mean)
+print(paste("La media de las medias del segmento en el tumor primario es:", PT_mean))
+
+# STN
+STN_mean <- mean(BRCA_CNV_STN$Segment_Mean)
+print(paste("La media de las medias del segmento en el tejido normal es:", STN_mean))
+```
+
+```{r}
+# Calcular la desviación estándar de las medias de los segmentos
+# PT
+PT_sd <- sd(BRCA_CNV_PT$Segment_Mean)
+print(paste("La desviación estándar de las medias de los segmentos en el tumor primario es:", PT_sd))
+
+# STN
+STN_sd <- sd(BRCA_CNV_STN$Segment_Mean)
+print(paste("La desviación estándar de las medias de los segmentos en el tejido normal es:", STN_sd))
+```
+
+```{r}
+# Prueba de homogeneidad de varianzas (F-Test)
+FTest <- var.test(BRCA_CNV_PT$Segment_Mean, BRCA_CNV_STN$Segment_Mean)
+FTest
+```
+
+
+```{r}
+# Prueba estadística para dos grupos independientes y sin homogeneidad de varianzas
+# Test de Welch
+TWelch <- t.test(BRCA_CNV_PT$Segment_Mean, BRCA_CNV_STN$Segment_Mean, var.equal = FALSE)
+TWelch
+```
+
+```{r}
+library(dplyr)
+
+# Calcular la frecuencia de cada segmento en cada uno de los cromosoma en las muestras de tumor primario
+aberraciones_frecuentes_PT <- BRCA_CNV_PT %>%
+  group_by(Chromosome, Start, End) %>%
+  summarise(Frecuencia = n()) %>%
+  arrange(desc(Frecuencia))
+aberraciones_frecuentes_PT <- filter(aberraciones_frecuentes_PT, Chromosome != "Y")
+```
+
+```{r}
+library(openxlsx)
+top_20_CNVs <- head(aberraciones_frecuentes_PT, 20)
+write.xlsx(top_20_CNVs, file = "top_20_CNVs.xlsx")
+
+```
+
+```{r}
+library(dplyr)
+
+# Crear un nuevo dataframe con la cuenta de ganancias y pérdidas por cromosoma
+Ganancias_Perdidas <- BRCA_CNV_PT %>%
+  group_by(Chromosome) %>%
+  summarise(
+    Ganancias = sum(Segment_Mean > 0),  # Contar segmentos con valor positivo como ganancias
+    Perdidas = sum(Segment_Mean < 0)    # Contar segmentos con valor negativo como pérdidas
+  )
+
+Ganancias_Perdidas
+
+```
+
+```{r}
+# Filtrar el dataframe para excluir el cromosoma Y
+Ganancias_Perdidas_filtered <- Ganancias_Perdidas %>%
+  filter(Chromosome != "Y")
+
+# Ordenar los cromosomas
+chromosome_order <- c(as.character(1:22), "X")
+
+# Crear el histograma
+ggplot(Ganancias_Perdidas_filtered, aes(x = factor(Chromosome, levels = chromosome_order))) +
+  geom_bar(aes(y = Ganancias, fill = "Ganancias"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = -Perdidas, fill = "Pérdidas"), stat = "identity", position = "dodge") +
+  labs(x = "Cromosoma", y = "Pérdidas / Ganancias") +
+  scale_y_continuous(labels = abs) +  # Mostrar valores absolutos en el eje Y
+  scale_fill_manual(values = c("Ganancias" = "#9ACD32", "Pérdidas" = "#CD5555"), 
+                     name = "Tipo") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+# Sumar la cantidad de CNVs (ganancias y pérdidas) para cada cromosoma
+CNVs_por_cromosoma <- Ganancias_Perdidas_filtered %>%
+  mutate(Total_CNVs = Ganancias + Perdidas) %>%
+  select(Chromosome, Total_CNVs) %>%
+  distinct()
+
+# Ordenar los cromosomas
+chromosome_order <- c(as.character(1:22), "X")
+
+# Crear el histograma
+ggplot(CNVs_por_cromosoma, aes(x = factor(Chromosome, levels = chromosome_order), y = Total_CNVs)) +
+  geom_bar(stat = "identity", fill = "#7AC5CD") +
+  labs(x = "Cromosoma", y = "Cantidad de CNVs") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
