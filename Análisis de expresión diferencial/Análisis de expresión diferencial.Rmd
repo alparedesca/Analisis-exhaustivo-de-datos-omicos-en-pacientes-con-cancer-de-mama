@@ -1,0 +1,189 @@
+---
+title: "Expresión diferencial"
+author: "Alicia Paredes Calderón"
+date: "2024-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Establecer el directorio de trabajo
+setwd("c:/Users/apare/Desktop/Análisis de expresión diferencial")
+```
+
+```{r}
+# Cargar la librería
+library(TCGAbiolinks)
+```
+
+```{r}
+# Consulta para la descarga de los datos
+BRCA_TCGA <- GDCquery(project = 'TCGA-BRCA',
+                       data.category = 'Transcriptome Profiling',
+                       data.type = 'Gene Expression Quantification',
+                       experimental.strategy = 'RNA-Seq',
+                       workflow.type = 'STAR - Counts',
+                      sample.type = c("Primary Tumor", "Solid Tissue Normal"),
+                      access = 'open')
+
+getResults(BRCA_TCGA)
+```
+
+```{r}
+# Descargar todo el conjunto de datos
+# GDCdownload(BRCA_TCGA)
+```
+
+```{r}
+# Generar archivo .rda con los datos
+# BRCA <- GDCprepare(BRCA_TCGA, save = T, save.filename = "BRCA.rda")
+```
+
+```{r}
+# Cargar los datos en R
+load("BRCA.rda")
+BRCA <- data
+```
+
+```{r}
+# Crear la matriz de expresión
+library(SummarizedExperiment)
+BRCA.RNAseq <- GDCprepare(BRCA_TCGA)
+BRCAMatrix <- assay(BRCA.RNAseq, "unstranded")
+BRCA.RNAseq_CorOutliers <- TCGAanalyze_Preprocessing(BRCA.RNAseq)
+```
+
+```{r}
+# Normalización
+dataNorm <- TCGAanalyze_Normalization(
+  tabDF = BRCA.RNAseq_CorOutliers,
+  geneInfo = geneInfoHT)
+```
+
+```{r}
+# Filtrar los genes
+dataFilt <- TCGAanalyze_Filtering(
+  tabDF = dataNorm,
+  method = "quantile",
+  qnt.cut = 0.25)
+```
+
+```{r}
+# Seleccionar las muestras de tejido normal "NT"
+samplesNT <- TCGAquery_SampleTypes(
+    barcode = colnames(dataFilt),
+    typesample = c("NT"))
+```
+
+```{r}
+# Seleccionar las muestras de tumor primario "TP"
+samplesTP <- TCGAquery_SampleTypes(
+    barcode = colnames(dataFilt), 
+    typesample = c("TP"))
+```
+
+```{r}
+# Análisis de expresión diferencial (DEA)
+dataDEGs <- TCGAanalyze_DEA(
+    mat1 = dataFilt[,samplesNT],
+    mat2 = dataFilt[,samplesTP],
+    Cond1type = "Normal",
+    Cond2type = "Tumor",
+    fdr.cut = 0.01 ,
+    logFC.cut = 1,
+    method = "glmLRT")
+```
+
+```{r}
+# Filtrar los datos de dataDEGs para obtener los que cumplan FDR < 0.05
+dataDEGs_filt <- subset(dataDEGs, FDR < 0.05)
+dataDEGs_filt
+```
+
+```{r}
+# Filtrar los 20 genes más diferencialmente expresados
+library(dplyr)
+top_20_genes <- dataDEGs_filt %>% 
+  arrange(desc(abs(logFC))) %>% 
+  head(20)
+```
+
+
+```{r}
+# Guardar top_20_genes en formato .xlsx
+library(openxlsx)
+write.xlsx(top_20_genes, "top_20_genes.xlsx", rowNames = FALSE)
+```
+
+```{r}
+#Filtrar los genes con logFC < -5 y logFC > 5
+data_filtrado <- subset(dataDEGs_filt, logFC > 5 | logFC < -5)
+
+# Seleccionar las columnas de interés de dataDEGs_filt
+DEGs_red <- data_filtrado[, c("gene_name", "logFC", "FDR")]
+library(openxlsx)
+
+# Guardar lista de DEGs en excel para la red de interacción
+DEGs_red_xlsx <- "DEGs.xlsx"
+
+write.xlsx(DEGs_red, file = DEGs_red_xlsx, rowNames = FALSE)
+cat("El dataframe se ha guardado correctamente en", DEGs_red_xlsx, "\n")
+```
+
+```{r}
+# Ver la cantidad de genes infraexpresados
+genes_infraexpresados <- sum(dataDEGs$logFC < 0)
+print(paste("Número de genes infraexpresados en muestras de tumor primario:", genes_infraexpresados))
+
+# Ver la cantidad de genes sobreexpresados
+genes_sobreexpresados <- sum(dataDEGs$logFC > 0)
+print(paste("Número de genes sobreexpresados en muestras de tejido normal:", genes_sobreexpresados))
+
+```
+
+```{r}
+# Volcano plot
+TCGAVisualize_volcano(x = dataDEGs$logFC,
+                      y = dataDEGs$FDR,
+                      filename = "Volcano.png",
+                      x.cut = 5,
+                      y.cut = 10^-5,
+                      names = dataDEGs$gene_name,
+                      color = c("black", "darkgreen", "red"),
+                      names.size = 2,
+                      xlab = "Gene expression fold change (logFC)",
+                      legend = "State",
+                      title = "Volcano plot (Tumor primario vs. Tejido normal)",
+                      width = 10)
+```
+
+```{r}
+# Enrichment Analysis de los genes utilizados para la red de coexpresión
+# Gene Ontology (GO) and Pathway enrichment by DEGs list
+Genelist <- rownames(data_filtrado)
+library(EnsDb.Hsapiens.v86)
+geneIDs1 <- ensembldb::select(EnsDb.Hsapiens.v86, keys= Genelist, keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+ansEA <- TCGAanalyze_EAcomplete(
+    TFname = "DEA genes Normal Vs Tumor",
+    geneIDs1$SYMBOL)
+
+Enrichment_Analysis <- TCGAvisualize_EAbarplot(
+    tf = rownames(ansEA$ResBP), 
+    GOBPTab = ansEA$ResBP,
+    GOCCTab = ansEA$ResCC,
+    GOMFTab = ansEA$ResMF,
+    PathTab = ansEA$ResPat,
+    nRGTab = Genelist, 
+    nBar = 5)
+```
+
+
+
+
+
+
+
+
