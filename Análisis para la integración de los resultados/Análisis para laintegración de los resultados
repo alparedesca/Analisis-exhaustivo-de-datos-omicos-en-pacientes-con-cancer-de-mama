@@ -1,0 +1,198 @@
+---
+title: "Integración"
+author: "Alicia Paredes Calderón"
+date: "2024-07-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Establecer el directorio de trabajo
+setwd("c:/Users/apare/Desktop/Integración I")
+```
+
+```{r}
+# Cargar la librería
+library(TCGAbiolinks)
+```
+
+
+```{r}
+# EXPRESIÓN DIFERENCIAL
+```
+
+```{r}
+# Consulta para la descarga de los datos
+BRCA_TCGA <- GDCquery(project = 'TCGA-BRCA',
+                       data.category = 'Transcriptome Profiling',
+                       data.type = 'Gene Expression Quantification',
+                       experimental.strategy = 'RNA-Seq',
+                       workflow.type = 'STAR - Counts',
+                      sample.type = c("Primary Tumor", "Solid Tissue Normal"),
+                      access = 'open')
+
+getResults(BRCA_TCGA)
+```
+
+```{r}
+# Descargar todo el conjunto de datos
+# GDCdownload(BRCA_TCGA)
+```
+
+```{r}
+# Generar archivo .rda con los datos
+# BRCA <- GDCprepare(BRCA_TCGA, save = T, save.filename = "BRCA.rda")
+```
+
+```{r}
+# Cargar los datos en R
+load("BRCA.rda")
+BRCA <- data
+```
+
+```{r}
+# Crear la matriz de expresión
+library(SummarizedExperiment)
+BRCA.RNAseq <- GDCprepare(BRCA_TCGA)
+BRCAMatrix <- assay(BRCA.RNAseq, "unstranded")
+BRCA.RNAseq_CorOutliers <- TCGAanalyze_Preprocessing(BRCA.RNAseq)
+```
+
+```{r}
+# Normalización
+dataNorm <- TCGAanalyze_Normalization(
+  tabDF = BRCA.RNAseq_CorOutliers,
+  geneInfo = geneInfoHT)
+```
+
+```{r}
+# Filtrar los genes
+dataFilt <- TCGAanalyze_Filtering(
+  tabDF = dataNorm,
+  method = "quantile",
+  qnt.cut = 0.25)
+```
+
+```{r}
+# Seleccionar las muestras de tejido normal "NT"
+samplesNT <- TCGAquery_SampleTypes(
+    barcode = colnames(dataFilt),
+    typesample = c("NT"))
+```
+
+```{r}
+# Seleccionar las muestras de tumor primario "TP"
+samplesTP <- TCGAquery_SampleTypes(
+    barcode = colnames(dataFilt), 
+    typesample = c("TP"))
+```
+
+```{r}
+# Análisis de expresión diferencial (DEA)
+dataDEGs <- TCGAanalyze_DEA(
+    mat1 = dataFilt[,samplesNT],
+    mat2 = dataFilt[,samplesTP],
+    Cond1type = "Normal",
+    Cond2type = "Tumor",
+    fdr.cut = 0.01 ,
+    logFC.cut = 1,
+    method = "glmLRT")
+```
+
+```{r}
+# METILACIÓN DIFERENCIAL
+```
+
+```{r}
+# Hacer una consulta sobre los datos de metilación del TCGA
+BRCA_met_TCGA <- GDCquery(project = 'TCGA-BRCA',
+                      data.category = 'DNA Methylation',
+                      data.type = "Methylation Beta Value",
+                      platform = "Illumina Human Methylation 450",
+                      sample.type = c("Primary Tumor", "Solid Tissue Normal"),
+                      access = 'open')
+                       
+getResults(BRCA_met_TCGA)
+```
+
+```{r}
+# Descargar todo el conjunto de datos
+# GDCdownload(BRCA_met_TCGA)
+```
+
+```{r}
+# Generar archivo .rda con los datos
+# BRCA_met <- GDCprepare(BRCA_met_TCGA, save = T, save.filename = "BRCA_met.rda")
+```
+
+```{r}
+# Cargar los datos en R
+load("BRCA_met.rda")
+BRCA_met <- data
+```
+
+```{r}
+# Eliminar los valores faltantes
+library(SummarizedExperiment)
+BRCA_met_sinNA <- subset(BRCA_met,subset = (rowSums(is.na(assay(BRCA_met)))== 0))
+```
+
+```{r}
+# Análisis de regiones diferencialmente metiladas y generar volcano plot
+BRCA_met_DMC <- TCGAanalyze_DMC(BRCA_met_sinNA, 
+                                    groupCol = "definition", 
+                                    group1 = "Primary solid Tumor", 
+                                    group2="Solid Tissue Normal", 
+                                    p.cut = 10^-5, 
+                                    diffmean.cut = 0.40, 
+                                    legend = "State", 
+                                    plot.filename = "Volcano plot Metilación.png")
+```
+```{r}
+# Seleccionar las regiones diferencialmente metiladas que son significativas
+library(dplyr)
+DMC_significant <- BRCA_met_DMC %>%
+  filter(status %in% c("Hypermethylated in Primary solid Tumor", "Hypomethylated in Primary solid Tumor"))
+```
+
+```{r}
+# Seleccionar las regiones diferencialmente metiladas que son significativas
+library(dplyr)
+DMC_significant <- BRCA_met_DMC %>%
+  filter(status %in% c("Hypermethylated in Primary solid Tumor", "Hypomethylated in Primary solid Tumor"))
+```
+
+```{r}
+# Anotación
+library("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+annotation <- as.data.frame(getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19))
+```
+
+```{r}
+# Crear tabla con anotación
+DMC_significant_annotation <- merge(DMC_significant, annotation[, c("chr", "strand", "Name", "Relation_to_Island", "UCSC_RefGene_Name", "Regulatory_Feature_Group", "UCSC_RefGene_Group")], by = "row.names", all.x = TRUE)
+rownames(DMC_significant_annotation) <- NULL
+
+```
+
+```{r}
+# Eliminar filas vacías
+DMC_significant_annotation <- DMC_significant_annotation[DMC_significant_annotation$UCSC_RefGene_Name != "", , drop = FALSE]
+```
+
+
+```{r}
+# INTEGRACIÓN
+```
+
+```{r}
+# Encuentra los valores comunes entre las dos columnas
+valores_comunes <- intersect(DMC_significant_annotation$UCSC_RefGene_Name, dataDEGs$gene_name)
+
+# Muestra los valores compartidos
+print(valores_comunes)
+
+```
