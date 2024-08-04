@@ -3,7 +3,7 @@ Este repostitorio contiene todo el código generado durante mi trabajo final par
 
 El contenido de este repositorio está dividio en cuatro carpetas, correspondientes a los 4 análisis llevados a cabo en el trabajo:
 - Análisis de expresión diferencial.
-- Análisis diferncial de regiones metiladas.
+- Análisis diferencial de regiones metiladas.
 - Análisis del número variante de copias (CNVs).
 - Análisis para la integración de los resultados.
 
